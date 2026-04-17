@@ -58,4 +58,11 @@ static inline const char* pes_author(void) {
     return (env && env[0]) ? env : DEFAULT_AUTHOR;
 }
 
+// ─── Command wrappers (implemented in index.c and commit.c) ─────────────────
+void cmd_init(void);
+void cmd_add(int argc, char *argv[]);
+void cmd_status(void);
+void cmd_commit(int argc, char *argv[]);
+void cmd_log(void);
+
 #endif // PES_H
