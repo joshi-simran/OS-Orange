@@ -148,8 +148,9 @@ static int write_tree_level(IndexEntry *entries, int n, int start,
                              const char *prefix, int prefix_len,
                              ObjectID *id_out)
 {
-    Tree tree;
-    tree.count = 0;
+    Tree *tree = malloc(sizeof(Tree));
+    if (!tree) return -1;
+    tree->count = 0;
 
     int i = start;
     while (i < n) {
@@ -168,8 +169,8 @@ static int write_tree_level(IndexEntry *entries, int n, int start,
 
         if (!slash) {
             // Direct file in this directory
-            if (tree.count >= MAX_TREE_ENTRIES) return -1;
-            TreeEntry *e = &tree.entries[tree.count++];
+            if (tree->count >= MAX_TREE_ENTRIES) { free(tree); return -1; }
+            TreeEntry *e = &tree->entries[tree->count++];
             strncpy(e->name, rel, sizeof(e->name) - 1);
             e->name[sizeof(e->name) - 1] = '\0';
             e->mode = entries[i].mode;
@@ -179,6 +180,7 @@ static int write_tree_level(IndexEntry *entries, int n, int start,
             // Subdirectory — get its name
             int subname_len = (int)(slash - rel);
             char subname[256];
+            if ((size_t)subname_len >= sizeof(subname)) subname_len = sizeof(subname) - 1;
             memcpy(subname, rel, (size_t)subname_len);
             subname[subname_len] = '\0';
 
@@ -194,11 +196,11 @@ static int write_tree_level(IndexEntry *entries, int n, int start,
             int new_i = write_tree_level(entries, n, i,
                                           subprefix, (int)strlen(subprefix),
                                           &subtree_id);
-            if (new_i < 0) return -1;
+            if (new_i < 0) { free(tree); return -1; }
 
             // Add subdirectory entry to current tree
-            if (tree.count >= MAX_TREE_ENTRIES) return -1;
-            TreeEntry *e = &tree.entries[tree.count++];
+            if (tree->count >= MAX_TREE_ENTRIES) { free(tree); return -1; }
+            TreeEntry *e = &tree->entries[tree->count++];
             strncpy(e->name, subname, sizeof(e->name) - 1);
             e->name[sizeof(e->name) - 1] = '\0';
             e->mode = 0040000;
@@ -211,24 +213,29 @@ static int write_tree_level(IndexEntry *entries, int n, int start,
     // Serialize this tree and write it to the object store
     void *data;
     size_t data_len;
-    if (tree_serialize(&tree, &data, &data_len) != 0) return -1;
+    if (tree_serialize(tree, &data, &data_len) != 0) { free(tree); return -1; }
     if (object_write(OBJ_TREE, data, data_len, id_out) != 0) {
         free(data);
+        free(tree);
         return -1;
     }
     free(data);
+    free(tree);
     return i;
 }
 
 int tree_from_index(ObjectID *id_out) {
-    Index index;
-    index.count = 0;
+    Index *index = malloc(sizeof(Index));
+    if (!index) return -1;
+    index->count = 0;
     // Load the index (an empty/missing index is fine for the root tree)
-    index_load(&index);
+    index_load(index);
 
     // Sort entries by path so subdirectories are grouped
-    qsort(index.entries, (size_t)index.count, sizeof(IndexEntry), cmp_index_entry);
+    qsort(index->entries, (size_t)index->count, sizeof(IndexEntry), cmp_index_entry);
 
-    int result = write_tree_level(index.entries, index.count, 0, "", 0, id_out);
+    int result = write_tree_level(index->entries, index->count, 0, "", 0, id_out);
+    free(index);
     return (result >= 0) ? 0 : -1;
 }
+
